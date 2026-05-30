@@ -66,6 +66,7 @@ const navLinks = [
   { to: "/reminders", icon: "bi-bell", label: "Reminders" },
   { to: "/notes", icon: "bi-journal-text", label: "Notes" },
   { to: "/health", icon: "bi-heart-pulse", label: "Health" },
+  { to: "/settings", icon: "bi-gear", label: "Settings" },
 ];
 </script>
 

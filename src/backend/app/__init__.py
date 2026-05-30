@@ -25,12 +25,14 @@ def create_app(config_name="development"):
     from app.blueprints.reminders import reminders_bp
     from app.blueprints.notes import notes_bp
     from app.blueprints.health import health_bp
+    from app.blueprints.export import export_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(finance_bp, url_prefix="/api/finance")
     app.register_blueprint(reminders_bp, url_prefix="/api/reminders")
     app.register_blueprint(notes_bp, url_prefix="/api/notes")
     app.register_blueprint(health_bp, url_prefix="/api/health")
+    app.register_blueprint(export_bp, url_prefix="/api/export")
 
     @app.get("/api/ping")
     @limiter.exempt

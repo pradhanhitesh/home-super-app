@@ -1,0 +1,149 @@
+<template>
+  <div>
+    <div class="page-header">
+      <h1 class="page-title">Settings</h1>
+      <p class="page-subtitle">Household preferences and data management</p>
+    </div>
+
+    <!-- Export -->
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <i class="bi bi-database-down settings-card-icon"></i>
+        <div>
+          <div class="settings-card-title">Export Household Data</div>
+          <div class="settings-card-desc">
+            Download a ZIP of all your data — expenses, notes, reminders, health logs — as CSV and JSON files.
+          </div>
+        </div>
+      </div>
+
+      <div v-if="exportError" class="alert alert-danger py-2 mt-3 mb-0" style="font-size:0.85rem;">
+        {{ exportError }}
+      </div>
+
+      <button
+        class="btn-export mt-3"
+        :disabled="exporting"
+        @click="downloadExport"
+      >
+        <span v-if="exporting" class="spinner-border spinner-border-sm me-2" role="status"></span>
+        <i v-else class="bi bi-download me-2"></i>
+        {{ exporting ? "Preparing download…" : "Download Full Backup" }}
+      </button>
+
+      <p class="export-hint">
+        Includes: expenses, settlements, transactions, grocery items, reminders, notes, wellbeing, menstrual cycles.
+        One <code>.zip</code> with CSVs + <code>dump.json</code>.
+      </p>
+    </div>
+
+    <!-- Household info -->
+    <div class="settings-card mt-3">
+      <div class="settings-card-header">
+        <i class="bi bi-house settings-card-icon"></i>
+        <div>
+          <div class="settings-card-title">Household</div>
+          <div class="settings-card-desc">Signed in as {{ authStore.user?.display_name }} ({{ authStore.user?.email }})</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref } from "vue";
+import { useAuthStore } from "@/stores/auth";
+
+const authStore = useAuthStore();
+const exporting = ref(false);
+const exportError = ref(null);
+
+async function downloadExport() {
+  exporting.value = true;
+  exportError.value = null;
+  try {
+    const res = await authStore.apiFetch("/api/export/full");
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error ?? `Server error ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `home-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    exportError.value = e.message;
+  } finally {
+    exporting.value = false;
+  }
+}
+</script>
+
+<style scoped>
+.settings-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  max-width: 600px;
+}
+
+.settings-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.settings-card-icon {
+  font-size: 1.5rem;
+  color: #6b7280;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+
+.settings-card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.settings-card-desc {
+  font-size: 0.82rem;
+  color: #6b7280;
+  margin-top: 0.2rem;
+}
+
+.btn-export {
+  display: inline-flex;
+  align-items: center;
+  background: #0d6efd;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-export:hover:not(:disabled) {
+  background: #0b5ed7;
+}
+
+.btn-export:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.export-hint {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  margin: 0.6rem 0 0;
+}
+</style>

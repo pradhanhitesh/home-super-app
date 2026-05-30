@@ -161,3 +161,34 @@ Separate table for item-level detail (supports Gemini OCR extraction):
 - iOS PWA install + notification testing
 - Notification permission UX flow
 - Render production hardening (env vars, DB pooling, secrets)
+
+### Phase 6 — Export Data
+Motivation: reduce dependency on paid managed DB; allow full data portability and local backups.
+
+#### What gets exported (single ZIP)
+| File in ZIP | Format | Content |
+|---|---|---|
+| `expenses.csv` | CSV | All expenses with category, split, paid_by |
+| `settlements.csv` | CSV | All settlements |
+| `grocery_items.csv` | CSV | All items linked to parent expense |
+| `reminders.csv` | CSV | All reminders with repeat interval, sent status |
+| `notes.json` | JSON | All notes preserving checklist structure and tags |
+| `wellbeing.csv` | CSV | All entries per user — mood/energy/sleep |
+| `menstrual.csv` | CSV | All cycles with symptoms and predicted next |
+| `dump.json` | JSON | Everything above merged; ML-ready with all UUID/timestamp fields |
+
+#### Backend
+- New blueprint `/api/export`
+- `GET /api/export/full` — streams a ZIP of all modules (`zipfile` + `io.BytesIO`, no temp files)
+- `@require_auth` + scoped to caller's `household_id`
+- Rate-limited: 10 requests/hour
+
+#### Frontend
+- Settings page: single **Download Full Backup** button → triggers `/api/export/full` → downloads ZIP
+- Button shows spinner while downloading; filename includes date (`home-backup-YYYY-MM-DD.zip`)
+
+#### Cost-reduction angle
+Full JSON dump mirrors the ML-ready data contract — can be used to:
+1. Restore into a local SQLite/PostgreSQL instance
+2. Migrate away from Render Postgres to a cheaper provider with zero data loss
+3. Feed directly into a Jupyter notebook for personal analytics
