@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+src/backend/.env
+src/backend/.env.*
+!src/backend/.env.example
+src/frontend/.env
+src/frontend/.env.*
+!src/frontend/.env.example
+*.pem
+firebase-service-account.json
+*-service-account.json
+*.json.key
+
+# Node
+src/frontend/node_modules/
+src/frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
