@@ -39,7 +39,6 @@
           <button
             class="btn btn-sm btn-outline-secondary px-2"
             @click="shiftMonth(1)"
-            :disabled="isCurrentMonth"
           >
             <i class="bi bi-chevron-right"></i>
           </button>
