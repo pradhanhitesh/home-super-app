@@ -25,27 +25,33 @@ def _parse_month(month_str):
 
 
 def _rollover_budgets_for_user(household_id, user_id, month, actor_id):
-    """Copy previous month's budgets if none exist for this month."""
+    """Copy previous month's budgets for any category not yet set this month."""
     from app.models.finance import UserMonthlyBudget
-    has_any = UserMonthlyBudget.query.filter_by(
-        household_id=household_id, user_id=user_id, month=month
-    ).first()
-    if has_any:
-        return
     prev = _prev_month_start(month)
     prev_budgets = UserMonthlyBudget.query.filter_by(
         household_id=household_id, user_id=user_id, month=prev
     ).all()
+    if not prev_budgets:
+        return
+    existing = {
+        b.category_id
+        for b in UserMonthlyBudget.query.filter_by(
+            household_id=household_id, user_id=user_id, month=month
+        ).all()
+    }
+    added = False
     for b in prev_budgets:
-        db.session.add(UserMonthlyBudget(
-            household_id=household_id,
-            created_by=actor_id,
-            user_id=user_id,
-            category_id=b.category_id,
-            month=month,
-            amount=b.amount,
-        ))
-    if prev_budgets:
+        if b.category_id not in existing:
+            db.session.add(UserMonthlyBudget(
+                household_id=household_id,
+                created_by=actor_id,
+                user_id=user_id,
+                category_id=b.category_id,
+                month=month,
+                amount=b.amount,
+            ))
+            added = True
+    if added:
         db.session.commit()
 
 
