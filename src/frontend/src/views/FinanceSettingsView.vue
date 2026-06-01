@@ -99,18 +99,16 @@
         <div class="settings-card-body">
           <div v-for="u in users" :key="u.id" class="budget-user-block mb-4">
             <div class="budget-user-name">{{ u.display_name }}</div>
-            <!-- Total budget -->
+            <!-- Total budget (auto-calculated) -->
             <div class="budget-input-row">
               <label class="budget-input-label">Total monthly budget</label>
               <div class="input-group input-group-sm" style="max-width:180px;">
                 <span class="input-group-text">₹</span>
                 <input
                   type="number"
-                  class="form-control"
-                  min="0"
-                  step="100"
-                  :value="getBudget(u.id, null)"
-                  @change="setBudget(u.id, null, $event.target.value)"
+                  class="form-control bg-light"
+                  readonly
+                  :value="getCategoryBudgetSum(u.id)"
                 />
               </div>
             </div>
@@ -188,15 +186,58 @@
       </div>
     </div>
 
-    <!-- Delete cat confirm -->
-    <div class="modal-backdrop-custom" v-if="deleteCatTarget" @click.self="deleteCatTarget = null">
+    <!-- Re-categorize expenses before delete -->
+    <div class="modal-backdrop-custom" v-if="recatModal.open" @click.self="recatModal.open = false">
+      <div class="modal-card" style="max-width:520px">
+        <div class="modal-card-header">
+          <span>Re-categorize expenses</span>
+          <button class="modal-close" @click="recatModal.open = false"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="modal-card-body">
+          <p class="small text-muted mb-3">
+            <strong>{{ deleteCatTarget?.name }}</strong> has {{ recatModal.expenses.length }} expense(s). Assign each to another category before deleting.
+          </p>
+          <div v-for="exp in recatModal.expenses" :key="exp.id" class="d-flex align-items-center gap-2 mb-2">
+            <span class="flex-grow-1 small text-truncate" :title="exp.title">{{ exp.title }}</span>
+            <span class="small text-muted text-nowrap">₹{{ exp.amount }}</span>
+            <select
+              class="form-select form-select-sm"
+              style="max-width:160px"
+              v-model="recatModal.newCats[exp.id]"
+            >
+              <option disabled value="">Pick category</option>
+              <option
+                v-for="cat in categories.filter(c => c.id !== deleteCatTarget?.id)"
+                :key="cat.id"
+                :value="cat.id"
+              >{{ cat.name }}</option>
+            </select>
+          </div>
+          <div v-if="recatModal.error" class="alert alert-danger py-2 small mt-2">{{ recatModal.error }}</div>
+        </div>
+        <div class="modal-card-footer">
+          <button class="btn btn-sm btn-outline-secondary" @click="recatModal.open = false">Cancel</button>
+          <button
+            class="btn btn-sm btn-danger"
+            :disabled="recatModal.saving || !recatAllAssigned"
+            @click="saveRecatAndDelete"
+          >
+            <span v-if="recatModal.saving" class="spinner-border spinner-border-sm me-1"></span>
+            Re-categorize & Delete
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete cat confirm (no expenses) -->
+    <div class="modal-backdrop-custom" v-if="deleteCatTarget && !recatModal.open" @click.self="deleteCatTarget = null">
       <div class="modal-card modal-card-sm">
         <div class="modal-card-header">
           <span>Delete category?</span>
           <button class="modal-close" @click="deleteCatTarget = null"><i class="bi bi-x-lg"></i></button>
         </div>
         <div class="modal-card-body">
-          <p class="mb-0">Delete <strong>{{ deleteCatTarget?.name }}</strong>? All expenses in this category will lose their category link.</p>
+          <p class="mb-0">Delete <strong>{{ deleteCatTarget?.name }}</strong>? This cannot be undone.</p>
         </div>
         <div class="modal-card-footer">
           <button class="btn btn-sm btn-outline-secondary" @click="deleteCatTarget = null">Cancel</button>
@@ -293,6 +334,12 @@ function getBudget(userId, categoryId) {
   return entry ? entry.amount : 0;
 }
 
+function getCategoryBudgetSum(userId) {
+  return budgets.value
+    .filter((b) => b.user_id === userId && b.category_id !== null)
+    .reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+}
+
 // ── Budget set (debounce-free: fires on blur via @change) ─────────────────
 
 async function setBudget(userId, categoryId, rawValue) {
@@ -360,6 +407,10 @@ async function toggleShared(cat) {
 const catModal = ref({ open: false, id: null, name: "", icon: "bi-tag", color: "#0d6efd", is_shared: true, saving: false, error: "" });
 const deleteCatTarget = ref(null);
 const deletingCat = ref(false);
+const recatModal = ref({ open: false, expenses: [], newCats: {}, saving: false, error: "" });
+const recatAllAssigned = computed(() =>
+  recatModal.value.expenses.every((e) => recatModal.value.newCats[e.id])
+);
 
 // Common icon + color presets
 const ICON_PRESETS = [
@@ -411,7 +462,19 @@ async function saveCat() {
   }
 }
 
-function confirmDeleteCat(cat) { deleteCatTarget.value = cat; }
+async function confirmDeleteCat(cat) {
+  deleteCatTarget.value = cat;
+  recatModal.value = { open: false, expenses: [], newCats: {}, saving: false, error: "" };
+  const res = await authStore.apiFetch(`/api/finance/categories/${cat.id}/expenses`);
+  if (res.ok) {
+    const expenses = await res.json();
+    if (expenses.length > 0) {
+      const newCats = {};
+      expenses.forEach((e) => { newCats[e.id] = ""; });
+      recatModal.value = { open: true, expenses, newCats, saving: false, error: "" };
+    }
+  }
+}
 
 async function deleteCat() {
   deletingCat.value = true;
@@ -426,6 +489,27 @@ async function deleteCat() {
     }
   } finally {
     deletingCat.value = false;
+  }
+}
+
+async function saveRecatAndDelete() {
+  recatModal.value.saving = true;
+  recatModal.value.error = "";
+  try {
+    for (const exp of recatModal.value.expenses) {
+      const res = await authStore.apiFetch(`/api/finance/expenses/${exp.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ category_id: recatModal.value.newCats[exp.id] }),
+      });
+      if (!res.ok) {
+        recatModal.value.error = `Failed to update "${exp.title}". Try again.`;
+        return;
+      }
+    }
+    await deleteCat();
+    recatModal.value.open = false;
+  } finally {
+    recatModal.value.saving = false;
   }
 }
 

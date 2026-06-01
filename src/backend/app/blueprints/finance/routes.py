@@ -158,6 +158,19 @@ def update_category(cat_id):
     return jsonify(cat.to_dict())
 
 
+@finance_bp.get("/categories/<uuid:cat_id>/expenses")
+@require_auth
+def list_category_expenses(cat_id):
+    db_user = get_current_db_user()
+    if not db_user or not db_user.is_admin:
+        return jsonify({"error": "Admin access required"}), 403
+
+    from app.models.finance import Expense, FinanceCategory
+    FinanceCategory.query.filter_by(id=cat_id, household_id=db_user.household_id).first_or_404()
+    expenses = Expense.query.filter_by(category_id=cat_id, household_id=db_user.household_id).all()
+    return jsonify([e.to_dict() for e in expenses])
+
+
 @finance_bp.delete("/categories/<uuid:cat_id>")
 @require_auth
 def delete_category(cat_id):
@@ -165,8 +178,11 @@ def delete_category(cat_id):
     if not db_user or not db_user.is_admin:
         return jsonify({"error": "Admin access required"}), 403
 
-    from app.models.finance import FinanceCategory
+    from app.models.finance import FinanceCategory, Expense
     cat = FinanceCategory.query.filter_by(id=cat_id, household_id=db_user.household_id).first_or_404()
+    remaining = Expense.query.filter_by(category_id=cat_id, household_id=db_user.household_id).count()
+    if remaining:
+        return jsonify({"error": "Expenses still attached to this category. Re-categorize first.", "count": remaining}), 409
     db.session.delete(cat)
     db.session.commit()
     return "", 204
@@ -444,6 +460,32 @@ def delete_expense(expense_id):
     return "", 204
 
 
+@finance_bp.delete("/expenses")
+@require_auth
+def reset_expenses():
+    """Delete all expenses for a given month (YYYY-MM) in this household."""
+    db_user = get_current_db_user()
+    if not db_user:
+        return jsonify({"error": "User not found"}), 404
+
+    month_str = request.args.get("month", "")
+    if not month_str:
+        return jsonify({"error": "month param required. Use YYYY-MM."}), 400
+    try:
+        month = _parse_month(month_str)
+    except (ValueError, AttributeError):
+        return jsonify({"error": "Invalid month. Use YYYY-MM."}), 400
+
+    from app.models.finance import Expense
+    deleted = Expense.query.filter(
+        Expense.household_id == db_user.household_id,
+        db.extract("year", Expense.expense_date) == month.year,
+        db.extract("month", Expense.expense_date) == month.month,
+    ).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({"deleted": deleted}), 200
+
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 @finance_bp.get("/summary")
@@ -541,7 +583,7 @@ def get_summary():
     for u in users:
         uid = str(u.id)
         assigned_cats = user_cats.get(uid, set())
-        total_budget = budget_map.get((uid, None), 0)
+        total_budget = sum(v for (u, c), v in budget_map.items() if u == uid and c is not None)
         total_spent = sum(spending[uid].values())
         cat_breakdowns = []
         for cat_id in assigned_cats:

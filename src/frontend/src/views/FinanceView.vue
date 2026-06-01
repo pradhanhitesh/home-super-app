@@ -15,6 +15,10 @@
           <i class="bi bi-gear"></i>
           <span class="d-none d-md-inline">Settings</span>
         </RouterLink>
+        <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1" @click="resetConfirm = true">
+          <i class="bi bi-trash"></i>
+          <span class="d-none d-md-inline">Reset</span>
+        </button>
         <button class="btn btn-primary btn-sm d-flex align-items-center gap-1" @click="openCreate">
           <i class="bi bi-plus-lg"></i> Add Expense
         </button>
@@ -382,6 +386,24 @@
         </div>
       </div>
     </div>
+    <!-- Reset month confirm -->
+    <div class="modal-backdrop-custom" v-if="resetConfirm" @click.self="resetConfirm = false">
+      <div class="modal-card modal-card-sm">
+        <div class="modal-card-header">
+          <span>Reset {{ monthLabel }}?</span>
+          <button class="modal-close" @click="resetConfirm = false"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="modal-card-body">
+          <p class="mb-0">This will permanently delete <strong>all expenses</strong> for <strong>{{ monthLabel }}</strong>. Cannot be undone.</p>
+        </div>
+        <div class="modal-card-footer">
+          <button class="btn btn-sm btn-outline-secondary" @click="resetConfirm = false">Cancel</button>
+          <button class="btn btn-sm btn-danger" :disabled="resetting" @click="resetMonth">
+            <span v-if="resetting" class="spinner-border spinner-border-sm me-1"></span> Delete all
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -592,6 +614,8 @@ const blankModal = () => ({
 const modal = ref(blankModal());
 const deleteTarget = ref(null);
 const deleting = ref(false);
+const resetConfirm = ref(false);
+const resetting = ref(false);
 
 function openCreate() {
   const m = blankModal();
@@ -679,6 +703,19 @@ async function deleteExpense() {
     }
   } finally {
     deleting.value = false;
+  }
+}
+
+async function resetMonth() {
+  resetting.value = true;
+  try {
+    const res = await authStore.apiFetch(`/api/finance/expenses?month=${monthKey.value}`, { method: "DELETE" });
+    if (res.ok) {
+      resetConfirm.value = false;
+      await loadData();
+    }
+  } finally {
+    resetting.value = false;
   }
 }
 
