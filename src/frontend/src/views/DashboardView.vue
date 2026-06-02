@@ -303,14 +303,14 @@ function initials(name) {
 
 const kpiCards = computed(() => [
   {
-    label: "Monthly Spend",
+    label: "Combined Spend",
     value: totalSpend.value,
     icon: "bi-wallet2",
     iconBg: "#eff6ff",
     iconColor: "#2563eb",
   },
   {
-    label: "Balance",
+    label: "Net Balance",
     value: balanceText.value ?? "Settled ✓",
     icon: "bi-arrow-left-right",
     iconBg: "#fefce8",
@@ -672,5 +672,20 @@ onMounted(async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ─── Mobile ─────────────────────────────────── */
+@media (max-width: 480px) {
+  .kpi-card { padding: 0.75rem 0.85rem; gap: 0.6rem; }
+  .kpi-icon { width: 34px; height: 34px; font-size: 1rem; }
+  .kpi-value { font-size: 0.95rem; }
+  .kpi-label { font-size: 0.66rem; }
+
+  .cat-name { width: 70px; }
+  .cat-amt { width: 50px; font-size: 0.72rem; }
+
+  .panel-hd { padding: 0.7rem 0.9rem; font-size: 0.8rem; }
+  .panel-body { padding: 0.5rem 0.9rem 0.75rem; }
+  .panel-empty { padding: 1.2rem 0.9rem; }
 }
 </style>

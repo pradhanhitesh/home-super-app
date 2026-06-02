@@ -20,7 +20,8 @@
           <span class="d-none d-md-inline">Reset</span>
         </button>
         <button class="btn btn-primary btn-sm d-flex align-items-center gap-1" @click="openCreate">
-          <i class="bi bi-plus-lg"></i> Add Expense
+          <i class="bi bi-plus-lg"></i>
+          <span class="d-none d-sm-inline">Add Expense</span>
         </button>
       </div>
     </div>
@@ -49,9 +50,12 @@
         </div>
         <div class="d-flex align-items-center gap-2">
           <div v-if="summary?.balance" class="balance-chip" :class="isDebtor ? 'balance-owe' : 'balance-owed'">
-            <i class="bi bi-arrow-left-right me-1"></i>
-            <span v-if="isDebtor">You owe {{ summary.balance.creditor_name }} <strong>₹{{ fmt(summary.balance.amount) }}</strong></span>
-            <span v-else><strong>{{ summary.balance.debtor_name }}</strong> owes you <strong>₹{{ fmt(summary.balance.amount) }}</strong></span>
+            <i class="bi bi-arrow-left-right me-1 flex-shrink-0"></i>
+            <span class="balance-text">
+              <span v-if="isDebtor">You owe {{ summary.balance.creditor_name.split(' ')[0] }} <strong>₹{{ fmt(summary.balance.amount) }}</strong></span>
+              <span v-else><strong>{{ summary.balance.debtor_name.split(' ')[0] }}</strong> owes you <strong>₹{{ fmt(summary.balance.amount) }}</strong></span>
+              <span class="balance-net-tag">net</span>
+            </span>
           </div>
           <button
             v-if="summary?.balance && isCurrentMonth"
@@ -177,9 +181,11 @@
                   <i class="bi bi-person me-1" v-else></i>
                   {{ splitLabel(exp) }}
                 </span>
-                <span class="sep">·</span>
-                <i :class="`bi bi-${exp.payment_method === 'card' ? 'credit-card' : 'cash-coin'} me-1`"></i>
-                <span>{{ exp.payment_method }}</span>
+                <span class="sep exp-payment-sep">·</span>
+                <span class="exp-payment d-flex align-items-center gap-1">
+                  <i :class="`bi bi-${exp.payment_method === 'card' ? 'credit-card' : 'cash-coin'}`"></i>
+                  {{ exp.payment_method }}
+                </span>
               </div>
             </div>
             <div class="exp-right">
@@ -801,6 +807,25 @@ onMounted(loadData);
   padding: 0.3rem 0.75rem;
   border-radius: 99px;
   font-weight: 500;
+  max-width: 260px;
+  overflow: hidden;
+}
+.balance-text {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.balance-net-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+  flex-shrink: 0;
 }
 .balance-owe { background: #fef9c3; color: #854d0e; }
 .balance-owed { background: #dcfce7; color: #166534; }
@@ -1161,4 +1186,27 @@ onMounted(loadData);
 }
 .pill:hover { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
 .pill-active { background: #111827; color: #fff; border-color: #111827; }
+
+/* ─── Mobile ─────────────────────────────────── */
+@media (max-width: 480px) {
+  .page-header { flex-wrap: wrap; gap: 0.5rem; }
+
+  .budget-card { padding: 0.75rem 1rem 0.6rem; }
+
+  .expense-item { padding: 0.55rem 0.75rem; gap: 0.6rem; }
+  .exp-cat-badge { width: 30px; height: 30px; font-size: 0.85rem; }
+  .exp-amount { font-size: 0.85rem; }
+  .exp-meta { font-size: 0.7rem; gap: 0.15rem; }
+
+  /* hide payment method on tiny screens — least useful meta field */
+  .exp-meta .exp-payment { display: none; }
+  .exp-meta .exp-payment-sep { display: none; }
+
+  .balance-chip { max-width: 200px; font-size: 0.76rem; padding: 0.25rem 0.6rem; }
+
+  .month-label { font-size: 0.82rem; min-width: 90px; }
+
+  .modal-card-body { padding: 0.75rem 1rem; }
+  .modal-card-footer { padding: 0.6rem 1rem 0.75rem; }
+}
 </style>
