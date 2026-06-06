@@ -21,6 +21,7 @@ src/frontend/.env.*
 !src/frontend/.env.example
 *.pem
 firebase-service-account.json
+firebase-messaging-sw.js
 *-service-account.json
 *.json.key
 
