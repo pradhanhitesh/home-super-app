@@ -4,13 +4,19 @@ import { useAuthStore } from "@/stores/auth";
 
 const routes = [
   {
+    path: "/",
+    name: "Landing",
+    component: () => import("@/views/LandingView.vue"),
+    meta: { public: true },
+  },
+  {
     path: "/login",
     name: "Login",
     component: () => import("@/views/LoginView.vue"),
     meta: { public: true },
   },
   {
-    path: "/",
+    path: "/dashboard",
     name: "Dashboard",
     component: () => import("@/views/DashboardView.vue"),
     meta: { requiresAuth: true },

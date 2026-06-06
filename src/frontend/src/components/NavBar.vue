@@ -2,7 +2,7 @@
   <nav class="app-nav sticky-top">
     <div class="app-nav-inner">
       <!-- Brand -->
-      <RouterLink class="app-brand" to="/">
+      <RouterLink class="app-brand" to="/dashboard">
         <i class="bi bi-house-heart-fill"></i>
         <span>H&M</span>
       </RouterLink>
@@ -61,7 +61,7 @@ const authStore = useAuthStore();
 const firstName = computed(() => authStore.user?.display_name?.split(" ")[0] ?? "");
 
 const navLinks = [
-  { to: "/", icon: "bi-speedometer2", label: "Dashboard" },
+  { to: "/dashboard", icon: "bi-speedometer2", label: "Dashboard" },
   { to: "/finance", icon: "bi-wallet2", label: "Finance" },
   { to: "/reminders", icon: "bi-bell", label: "Reminders" },
   { to: "/notes", icon: "bi-journal-text", label: "Notes" },

@@ -22,6 +22,13 @@
         {{ loading ? "Signing in…" : "Continue with Google" }}
       </button>
 
+      <div v-if="unauthorized" class="login-private-notice">
+        <i class="bi bi-shield-lock-fill" style="font-size:1.5rem; color:#6366f1; display:block; margin-bottom:.6rem;"></i>
+        <strong>Private Application</strong>
+        <p>This app is designed for private household use and is not open for public access.</p>
+        <p>Thank you for showing interest!</p>
+      </div>
+
       <p class="login-note">Private — authorised accounts only.</p>
     </div>
   </div>
@@ -36,15 +43,21 @@ const authStore = useAuthStore();
 const router = useRouter();
 const loading = ref(false);
 const error = ref("");
+const unauthorized = ref(false);
 
 async function login() {
   loading.value = true;
   error.value = "";
+  unauthorized.value = false;
   try {
     await authStore.loginWithGoogle();
     router.push({ name: "Dashboard" });
   } catch (e) {
-    error.value = e.message || "Sign-in failed. Try again.";
+    if (e.message?.includes("not authorized")) {
+      unauthorized.value = true;
+    } else {
+      error.value = e.message || "Sign-in failed. Try again.";
+    }
   } finally {
     loading.value = false;
   }
@@ -140,5 +153,27 @@ async function login() {
   font-size: 0.78rem;
   color: #d1d5db;
   margin: 1.25rem 0 0;
+}
+
+.login-private-notice {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 1.25rem 1rem;
+  text-align: center;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  color: #1e40af;
+}
+
+.login-private-notice strong {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.login-private-notice p {
+  margin: 0.2rem 0 0;
+  color: #3b82f6;
 }
 </style>
