@@ -67,6 +67,15 @@
           <div v-if="!summary?.balance && summary" class="balance-chip balance-clear">
             <i class="bi bi-check2-circle me-1"></i> All settled
           </div>
+          <button
+            v-if="summary"
+            class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
+            @click="openLedger"
+            title="View full balance ledger"
+          >
+            <i class="bi bi-journal-text"></i>
+            <span class="d-none d-sm-inline">Ledger</span>
+          </button>
         </div>
       </div>
 
@@ -392,6 +401,174 @@
         </div>
       </div>
     </div>
+    <!-- Balance Ledger Modal -->
+    <div class="modal-backdrop-custom" v-if="ledger.open" @click.self="ledger.open = false">
+      <div class="modal-card ledger-modal">
+        <div class="modal-card-header">
+          <span><i class="bi bi-journal-text me-2"></i>Balance Ledger</span>
+          <button class="modal-close" @click="ledger.open = false"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="modal-card-body ledger-body">
+
+          <div v-if="ledger.loading" class="text-center py-4 text-muted">
+            <div class="spinner-border spinner-border-sm me-2"></div> Loading ledger…
+          </div>
+
+          <div v-else-if="ledger.error" class="alert alert-danger">{{ ledger.error }}</div>
+
+          <template v-else-if="ledger.data">
+
+            <!-- Net balance summary -->
+            <div v-if="ledger.data.balance" class="ledger-summary-card ledger-summary-owe">
+              <div class="ledger-summary-icon"><i class="bi bi-arrow-left-right"></i></div>
+              <div>
+                <div class="ledger-summary-label">Current Net Balance — All Time</div>
+                <div class="ledger-summary-value">
+                  <strong>{{ ledger.data.balance.debtor_name }}</strong> owes
+                  <strong>{{ ledger.data.balance.creditor_name }}</strong>
+                  <span class="ledger-summary-amount">₹{{ fmt(ledger.data.balance.amount) }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="ledger.data.entries?.length" class="ledger-summary-card ledger-summary-clear">
+              <div class="ledger-summary-icon"><i class="bi bi-check2-circle"></i></div>
+              <div>
+                <div class="ledger-summary-label">All-Time Balance</div>
+                <div class="ledger-summary-value">All settled — no outstanding balance</div>
+              </div>
+            </div>
+
+            <!-- Empty -->
+            <div v-if="!ledger.data.entries?.length" class="text-center py-4 text-muted">
+              <i class="bi bi-receipt" style="font-size:2rem;display:block;margin-bottom:.5rem;"></i>
+              No expenses recorded yet.
+            </div>
+
+            <!-- Chronological entries -->
+            <div v-else class="ledger-timeline">
+              <div class="ledger-timeline-label">Full Chronological History</div>
+
+              <template v-for="entry in ledger.data.entries" :key="entry.id">
+
+                <!-- EXPENSE -->
+                <div v-if="entry.type === 'expense'" class="ledger-entry ledger-entry-expense">
+                  <div class="ledger-entry-datecol">
+                    <div class="ledger-date">{{ new Date(entry.date + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' }) }}</div>
+                    <div class="ledger-year">{{ new Date(entry.date + 'T00:00:00').getFullYear() }}</div>
+                  </div>
+
+                  <div class="ledger-entry-main">
+                    <div class="ledger-entry-top">
+                      <div class="ledger-cat-badge" :style="{ background: entry.category_color + '22', color: entry.category_color }">
+                        <i :class="`bi ${entry.category_icon}`"></i>
+                      </div>
+                      <div class="ledger-entry-info">
+                        <div class="ledger-entry-title">{{ entry.title }}</div>
+                        <div class="ledger-entry-meta">
+                          <span>{{ entry.category_name }}</span>
+                          <span class="sep">·</span>
+                          <span>Paid by <strong>{{ entry.paid_by_name }}</strong></span>
+                          <span class="sep">·</span>
+                          <span>{{ ledgerSplitDesc(entry) }}</span>
+                        </div>
+                      </div>
+                      <div class="ledger-entry-amount">₹{{ fmt(entry.amount) }}</div>
+                    </div>
+
+                    <!-- Share breakdown per user -->
+                    <div class="ledger-shares">
+                      <div class="ledger-shares-row" v-for="u in ledger.data.users" :key="u.id">
+                        <span class="ledger-share-name" :title="u.name">{{ u.name.split(' ')[0] }}</span>
+                        <div class="ledger-share-bar-wrap">
+                          <div
+                            class="ledger-share-bar"
+                            :style="{ width: entry.amount > 0 ? Math.round((entry.shares[u.id] || 0) / entry.amount * 100) + '%' : '0%', background: entry.category_color }"
+                          ></div>
+                        </div>
+                        <span class="ledger-share-amount">₹{{ fmt(entry.shares[u.id] || 0) }}</span>
+                        <span class="ledger-share-pct">{{ entry.amount > 0 ? Math.round((entry.shares[u.id] || 0) / entry.amount * 100) : 0 }}%</span>
+                        <span v-if="u.id !== entry.paid_by && (entry.shares[u.id] || 0) > 0.005" class="ledger-owes-tag">owes {{ entry.paid_by_name.split(' ')[0] }}</span>
+                        <span v-else-if="u.id === entry.paid_by" class="ledger-paid-tag">paid</span>
+                        <span v-else class="ledger-noowe-tag">no obligation</span>
+                      </div>
+                    </div>
+
+                    <!-- Net effect from this expense -->
+                    <div v-if="entry.net_amount > 0" class="ledger-net-effect">
+                      <i class="bi bi-arrow-right-circle me-1"></i>
+                      From this: <strong>{{ ledgerUserName(entry.net_debtor) }}</strong> owes
+                      <strong>{{ ledgerUserName(entry.net_creditor) }}</strong>
+                      <span class="ledger-net-amount">₹{{ fmt(entry.net_amount) }}</span>
+                    </div>
+                    <div v-else class="ledger-net-effect ledger-net-none">
+                      <i class="bi bi-person-check me-1"></i>
+                      <strong>{{ entry.paid_by_name }}</strong> bears this cost entirely — no transfer
+                    </div>
+
+                    <!-- Running balance after this entry -->
+                    <div class="ledger-running" :class="entry.running_amount > 0 ? 'ledger-running-owe' : 'ledger-running-clear'">
+                      <i class="bi bi-arrow-return-right me-1"></i>
+                      <span v-if="entry.running_amount > 0">
+                        Running balance: <strong>{{ ledgerUserName(entry.running_debtor) }}</strong> owes
+                        <strong>{{ ledgerUserName(entry.running_creditor) }}</strong>
+                        <strong class="ledger-running-val">₹{{ fmt(entry.running_amount) }}</strong>
+                      </span>
+                      <span v-else>Running balance: <strong class="text-success">All settled ✓</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- SETTLEMENT -->
+                <div v-else class="ledger-entry ledger-entry-settlement">
+                  <div class="ledger-entry-datecol">
+                    <div class="ledger-date">{{ new Date(entry.date + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short' }) }}</div>
+                    <div class="ledger-year">{{ new Date(entry.date + 'T00:00:00').getFullYear() }}</div>
+                  </div>
+
+                  <div class="ledger-entry-main">
+                    <div class="ledger-entry-top">
+                      <div class="ledger-settle-badge">
+                        <i class="bi bi-check2-circle"></i>
+                      </div>
+                      <div class="ledger-entry-info">
+                        <div class="ledger-entry-title">Settlement</div>
+                        <div class="ledger-entry-meta">
+                          <strong>{{ entry.paid_by_name }}</strong>
+                          <span>paid</span>
+                          <strong>{{ entry.paid_to_name }}</strong>
+                          <span v-if="entry.note" class="sep">·</span>
+                          <span v-if="entry.note">"{{ entry.note }}"</span>
+                        </div>
+                      </div>
+                      <div class="ledger-entry-amount ledger-settle-amount">−₹{{ fmt(entry.amount) }}</div>
+                    </div>
+
+                    <div class="ledger-net-effect ledger-net-settle">
+                      <i class="bi bi-arrow-down-circle me-1"></i>
+                      Debt reduced by ₹{{ fmt(entry.amount) }} —
+                      <strong>{{ entry.paid_by_name }}</strong> paid <strong>{{ entry.paid_to_name }}</strong> in full/partial settlement
+                    </div>
+
+                    <div class="ledger-running" :class="entry.running_amount > 0 ? 'ledger-running-owe' : 'ledger-running-clear'">
+                      <i class="bi bi-arrow-return-right me-1"></i>
+                      <span v-if="entry.running_amount > 0">
+                        Running balance: <strong>{{ ledgerUserName(entry.running_debtor) }}</strong> owes
+                        <strong>{{ ledgerUserName(entry.running_creditor) }}</strong>
+                        <strong class="ledger-running-val">₹{{ fmt(entry.running_amount) }}</strong>
+                      </span>
+                      <span v-else>Running balance: <strong class="text-success">All settled ✓</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+              </template>
+            </div>
+          </template>
+
+        </div>
+      </div>
+    </div>
+
     <!-- Reset month confirm -->
     <div class="modal-backdrop-custom" v-if="resetConfirm" @click.self="resetConfirm = false">
       <div class="modal-card modal-card-sm">
@@ -764,6 +941,37 @@ async function recordSettlement() {
     s.error = "Network error.";
   } finally {
     s.saving = false;
+  }
+}
+
+// ── Balance Ledger ─────────────────────────────────────────────────────────
+
+const ledger = ref({ open: false, loading: false, error: null, data: null });
+
+async function openLedger() {
+  ledger.value = { open: true, loading: true, error: null, data: null };
+  try {
+    const res = await authStore.apiFetch("/api/finance/balance/breakdown");
+    if (!res.ok) throw new Error("Failed to load balance breakdown");
+    ledger.value.data = await res.json();
+  } catch (e) {
+    ledger.value.error = e.message || "Failed to load ledger";
+  } finally {
+    ledger.value.loading = false;
+  }
+}
+
+function ledgerUserName(uid) {
+  return ledger.value.data?.users?.find(u => u.id === uid)?.name ?? "Unknown";
+}
+
+function ledgerSplitDesc(entry) {
+  switch (entry.split_type) {
+    case "equal": return "Split equally (50/50)";
+    case "none": return `${entry.paid_by_name} pays fully — no split`;
+    case "amount": return "Custom ₹ amounts";
+    case "custom": return "Custom ratio split";
+    default: return "";
   }
 }
 
@@ -1187,6 +1395,176 @@ onMounted(loadData);
 .pill:hover { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
 .pill-active { background: #111827; color: #fff; border-color: #111827; }
 
+/* ─── Balance Ledger ─────────────────────────── */
+.ledger-modal { max-width: 680px; }
+.ledger-body { padding: 1rem 1.25rem; }
+
+.ledger-summary-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 12px;
+  margin-bottom: 1.25rem;
+}
+.ledger-summary-owe { background: #fef9c3; border: 1px solid #fde68a; }
+.ledger-summary-clear { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.ledger-summary-icon { font-size: 1.4rem; color: #92400e; line-height: 1; margin-top: 0.1rem; }
+.ledger-summary-clear .ledger-summary-icon { color: #166534; }
+.ledger-summary-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #92400e;
+  margin-bottom: 0.25rem;
+}
+.ledger-summary-clear .ledger-summary-label { color: #166534; }
+.ledger-summary-value { font-size: 0.95rem; color: #111827; }
+.ledger-summary-amount { font-weight: 700; font-size: 1.1rem; color: #92400e; margin-left: 0.35rem; }
+
+.ledger-timeline-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+  margin-bottom: 0.75rem;
+}
+
+.ledger-timeline { display: flex; flex-direction: column; }
+
+.ledger-entry {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.ledger-entry-datecol {
+  width: 44px;
+  flex-shrink: 0;
+  text-align: center;
+  padding-top: 0.75rem;
+}
+.ledger-date { font-size: 0.72rem; font-weight: 700; color: #374151; line-height: 1.2; }
+.ledger-year { font-size: 0.65rem; color: #9ca3af; }
+
+.ledger-entry-main {
+  flex: 1;
+  background: #fff;
+  border: 1px solid #f3f4f6;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  min-width: 0;
+}
+.ledger-entry-settlement .ledger-entry-main { background: #f0fdf4; border-color: #bbf7d0; }
+
+.ledger-entry-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+.ledger-cat-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+.ledger-settle-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  background: #dcfce7;
+  color: #16a34a;
+}
+.ledger-entry-info { flex: 1; min-width: 0; }
+.ledger-entry-title { font-size: 0.88rem; font-weight: 600; color: #111827; }
+.ledger-entry-meta {
+  font-size: 0.73rem;
+  color: #9ca3af;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+  margin-top: 0.15rem;
+}
+.ledger-entry-amount { font-size: 0.95rem; font-weight: 700; color: #111827; flex-shrink: 0; }
+.ledger-settle-amount { color: #16a34a; }
+
+.ledger-shares {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.ledger-shares-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+.ledger-share-name {
+  width: 72px;
+  flex-shrink: 0;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ledger-share-bar-wrap { flex: 1; height: 6px; background: #e5e7eb; border-radius: 99px; overflow: hidden; }
+.ledger-share-bar { height: 100%; border-radius: 99px; transition: width 0.3s ease; opacity: 0.75; }
+.ledger-share-amount { width: 60px; text-align: right; font-weight: 600; color: #111827; flex-shrink: 0; }
+.ledger-share-pct { width: 34px; text-align: right; font-size: 0.7rem; color: #9ca3af; flex-shrink: 0; }
+
+.ledger-owes-tag {
+  font-size: 0.68rem; padding: 0.05rem 0.4rem; border-radius: 4px;
+  background: #fef3c7; color: #92400e; font-weight: 500; flex-shrink: 0; white-space: nowrap;
+}
+.ledger-paid-tag {
+  font-size: 0.68rem; padding: 0.05rem 0.4rem; border-radius: 4px;
+  background: #dbeafe; color: #1d4ed8; font-weight: 500; flex-shrink: 0;
+}
+.ledger-noowe-tag {
+  font-size: 0.68rem; padding: 0.05rem 0.4rem; border-radius: 4px;
+  background: #f3f4f6; color: #6b7280; font-weight: 500; flex-shrink: 0;
+}
+
+.ledger-net-effect {
+  font-size: 0.78rem;
+  color: #374151;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: #fefce8;
+  border-left: 3px solid #facc15;
+  margin-bottom: 0.5rem;
+}
+.ledger-net-none { background: #f9fafb; border-left-color: #d1d5db; color: #6b7280; }
+.ledger-net-settle { background: #f0fdf4; border-left-color: #4ade80; color: #166534; }
+.ledger-net-amount { font-weight: 700; color: #92400e; margin-left: 0.2rem; }
+
+.ledger-running {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+}
+.ledger-running-owe { background: #fef9c3; color: #854d0e; }
+.ledger-running-clear { background: #f0fdf4; color: #166534; }
+.ledger-running-val { font-size: 0.85rem; margin-left: 0.25rem; }
+
 /* ─── Mobile ─────────────────────────────────── */
 @media (max-width: 480px) {
   .page-header { flex-wrap: wrap; gap: 0.5rem; }
@@ -1208,5 +1586,11 @@ onMounted(loadData);
 
   .modal-card-body { padding: 0.75rem 1rem; }
   .modal-card-footer { padding: 0.6rem 1rem 0.75rem; }
+
+  .ledger-entry-datecol { width: 34px; }
+  .ledger-share-name { width: 54px; }
+  .ledger-share-amount { width: 48px; }
+  .ledger-share-pct { display: none; }
+  .ledger-owes-tag, .ledger-paid-tag, .ledger-noowe-tag { display: none; }
 }
 </style>

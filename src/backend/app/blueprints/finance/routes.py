@@ -713,3 +713,130 @@ def delete_settlement(settlement_id):
     db.session.delete(s)
     db.session.commit()
     return "", 204
+
+
+# ─── Balance Ledger ──────────────────────────────────────────────────────────
+
+@finance_bp.get("/balance/breakdown")
+@require_auth
+def get_balance_breakdown():
+    db_user = get_current_db_user()
+    if not db_user:
+        return jsonify({"error": "User not found"}), 404
+
+    from app.models.finance import Expense, Settlement
+    from app.models.user import User
+
+    hid = db_user.household_id
+    users = User.query.filter_by(household_id=hid).all()
+    user_ids = [str(u.id) for u in users]
+    user_map = {str(u.id): u for u in users}
+
+    all_expenses = Expense.query.filter_by(household_id=hid).order_by(
+        Expense.expense_date, Expense.created_at
+    ).all()
+    all_settlements = Settlement.query.filter_by(household_id=hid).order_by(
+        Settlement.settled_at, Settlement.created_at
+    ).all()
+
+    entries = []
+
+    for expense in all_expenses:
+        shares = _compute_shares(expense, user_ids)
+        payer_id = str(expense.paid_by)
+        net_debtor = None
+        net_creditor = None
+        net_amount = 0.0
+        if expense.split_type.value != "none":
+            for uid, share in shares.items():
+                if uid != payer_id and share > 0.005:
+                    net_debtor = uid
+                    net_creditor = payer_id
+                    net_amount = round(share, 2)
+                    break
+        entries.append({
+            "type": "expense",
+            "date": expense.expense_date.isoformat(),
+            "created_at": expense.created_at.isoformat(),
+            "id": str(expense.id),
+            "title": expense.title,
+            "amount": float(expense.amount),
+            "paid_by": payer_id,
+            "paid_by_name": user_map[payer_id].display_name if payer_id in user_map else "Unknown",
+            "category_name": expense.category.name if expense.category else "Uncategorized",
+            "category_icon": expense.category.icon if expense.category else "bi-tag",
+            "category_color": expense.category.color if expense.category else "#9ca3af",
+            "split_type": expense.split_type.value,
+            "split_ratio": expense.split_ratio,
+            "shares": {uid: round(shares.get(uid, 0), 2) for uid in user_ids},
+            "net_debtor": net_debtor,
+            "net_creditor": net_creditor,
+            "net_amount": net_amount,
+        })
+
+    for s in all_settlements:
+        pb = str(s.paid_by)
+        pt = str(s.paid_to)
+        entries.append({
+            "type": "settlement",
+            "date": s.settled_at.isoformat(),
+            "created_at": s.created_at.isoformat(),
+            "id": str(s.id),
+            "paid_by": pb,
+            "paid_by_name": user_map[pb].display_name if pb in user_map else "Unknown",
+            "paid_to": pt,
+            "paid_to_name": user_map[pt].display_name if pt in user_map else "Unknown",
+            "amount": float(s.amount),
+            "note": s.note,
+        })
+
+    entries.sort(key=lambda e: (e["date"], e.get("created_at", "")))
+
+    # Compute running balance after each entry using same debt matrix logic as summary
+    debt = {uid: {uid2: 0.0 for uid2 in user_ids if uid2 != uid} for uid in user_ids}
+    for entry in entries:
+        if entry["type"] == "expense":
+            nd, nc, amt = entry["net_debtor"], entry["net_creditor"], entry["net_amount"]
+            if nd and nc and amt > 0.005:
+                debt[nd][nc] += amt
+        else:
+            pb, pt, amt = entry["paid_by"], entry["paid_to"], entry["amount"]
+            if pb in debt and pt in debt.get(pb, {}):
+                debt[pb][pt] = max(0.0, debt[pb][pt] - amt)
+
+        if len(user_ids) == 2:
+            a, b = user_ids[0], user_ids[1]
+            net = debt[a].get(b, 0) - debt[b].get(a, 0)
+            if abs(net) > 0.005:
+                entry["running_debtor"] = a if net > 0 else b
+                entry["running_creditor"] = b if net > 0 else a
+                entry["running_amount"] = round(abs(net), 2)
+            else:
+                entry["running_debtor"] = None
+                entry["running_creditor"] = None
+                entry["running_amount"] = 0.0
+        else:
+            entry["running_debtor"] = None
+            entry["running_creditor"] = None
+            entry["running_amount"] = 0.0
+
+    balance = None
+    if len(user_ids) == 2:
+        a, b = user_ids[0], user_ids[1]
+        net = debt[a].get(b, 0) - debt[b].get(a, 0)
+        if abs(net) > 0.005:
+            debtor = a if net > 0 else b
+            creditor = b if net > 0 else a
+            balance = {
+                "debtor_id": debtor,
+                "debtor_name": user_map[debtor].display_name,
+                "creditor_id": creditor,
+                "creditor_name": user_map[creditor].display_name,
+                "amount": round(abs(net), 2),
+            }
+
+    return jsonify({
+        "users": [{"id": str(u.id), "name": u.display_name} for u in users],
+        "entries": entries,
+        "balance": balance,
+    })
