@@ -406,7 +406,18 @@
       <div class="modal-card ledger-modal">
         <div class="modal-card-header">
           <span><i class="bi bi-journal-text me-2"></i>Balance Ledger</span>
-          <button class="modal-close" @click="ledger.open = false"><i class="bi bi-x-lg"></i></button>
+          <div class="ledger-header-controls">
+            <div class="ledger-month-nav">
+              <button class="btn btn-sm btn-outline-secondary px-2" @click="changeLedgerMonth(-1)" :disabled="ledger.loading" title="Previous month"><i class="bi bi-chevron-left"></i></button>
+              <span class="ledger-month-pill">{{ ledgerMonthLabel(ledger.month) }}</span>
+              <button class="btn btn-sm btn-outline-secondary px-2" @click="changeLedgerMonth(1)" :disabled="ledger.loading" title="Next month"><i class="bi bi-chevron-right"></i></button>
+            </div>
+            <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1" @click="downloadLedgerPDF" :disabled="ledger.loading || !ledger.data" title="Download as PDF">
+              <i class="bi bi-file-earmark-arrow-down"></i>
+              <span class="d-none d-sm-inline">PDF</span>
+            </button>
+            <button class="modal-close" @click="ledger.open = false"><i class="bi bi-x-lg"></i></button>
+          </div>
         </div>
         <div class="modal-card-body ledger-body">
 
@@ -422,7 +433,7 @@
             <div v-if="ledger.data.balance" class="ledger-summary-card ledger-summary-owe">
               <div class="ledger-summary-icon"><i class="bi bi-arrow-left-right"></i></div>
               <div>
-                <div class="ledger-summary-label">Current Net Balance — All Time</div>
+                <div class="ledger-summary-label">Net Balance — All Time (as of last entry)</div>
                 <div class="ledger-summary-value">
                   <strong>{{ ledger.data.balance.debtor_name }}</strong> owes
                   <strong>{{ ledger.data.balance.creditor_name }}</strong>
@@ -446,7 +457,7 @@
 
             <!-- Chronological entries -->
             <div v-else class="ledger-timeline">
-              <div class="ledger-timeline-label">Full Chronological History</div>
+              <div class="ledger-timeline-label">{{ ledgerMonthLabel(ledger.month) }} — {{ ledger.data.entries.length }} {{ ledger.data.entries.length === 1 ? 'entry' : 'entries' }}</div>
 
               <template v-for="entry in ledger.data.entries" :key="entry.id">
 
@@ -946,12 +957,20 @@ async function recordSettlement() {
 
 // ── Balance Ledger ─────────────────────────────────────────────────────────
 
-const ledger = ref({ open: false, loading: false, error: null, data: null });
+const ledger = ref({ open: false, loading: false, error: null, data: null, month: null });
 
 async function openLedger() {
-  ledger.value = { open: true, loading: true, error: null, data: null };
+  ledger.value = { open: true, loading: true, error: null, data: null, month: monthKey.value };
+  await _fetchLedger(monthKey.value);
+}
+
+async function _fetchLedger(month) {
+  ledger.value.loading = true;
+  ledger.value.error = null;
+  ledger.value.data = null;
   try {
-    const res = await authStore.apiFetch("/api/finance/balance/breakdown");
+    const q = month ? `?month=${month}` : "";
+    const res = await authStore.apiFetch(`/api/finance/balance/breakdown${q}`);
     if (!res.ok) throw new Error("Failed to load balance breakdown");
     ledger.value.data = await res.json();
   } catch (e) {
@@ -959,6 +978,21 @@ async function openLedger() {
   } finally {
     ledger.value.loading = false;
   }
+}
+
+async function changeLedgerMonth(delta) {
+  const [y, m] = ledger.value.month.split("-").map(Number);
+  let nm = m + delta, ny = y;
+  if (nm > 12) { nm = 1; ny++; }
+  if (nm < 1) { nm = 12; ny--; }
+  ledger.value.month = `${ny}-${String(nm).padStart(2, "0")}`;
+  await _fetchLedger(ledger.value.month);
+}
+
+function ledgerMonthLabel(ym) {
+  if (!ym) return "All Time";
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
 }
 
 function ledgerUserName(uid) {
@@ -973,6 +1007,80 @@ function ledgerSplitDesc(entry) {
     case "custom": return "Custom ratio split";
     default: return "";
   }
+}
+
+function downloadLedgerPDF() {
+  const d = ledger.value.data;
+  if (!d) return;
+  const monthLabel = ledgerMonthLabel(ledger.value.month);
+  const users = d.users ?? [];
+
+  const fmtAmt = (n) => "₹" + Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const balanceLine = d.balance
+    ? `<p class="bal-owe"><strong>${d.balance.debtor_name}</strong> owes <strong>${d.balance.creditor_name}</strong> ${fmtAmt(d.balance.amount)}</p>`
+    : `<p class="bal-clear">All settled — no outstanding balance</p>`;
+
+  const rows = (d.entries ?? []).map(e => {
+    if (e.type === "expense") {
+      const sharesHtml = users.map(u => {
+        const sh = e.shares?.[u.id] ?? 0;
+        const tag = u.id !== e.paid_by && sh > 0.005 ? " (owes)"
+          : u.id === e.paid_by ? " (paid)" : " (—)";
+        return `${u.name.split(" ")[0]}: ${fmtAmt(sh)}${tag}`;
+      }).join(" &nbsp;|&nbsp; ");
+      const netLine = e.net_amount > 0
+        ? `Net: ${ledgerUserName(e.net_debtor)} owes ${ledgerUserName(e.net_creditor)} ${fmtAmt(e.net_amount)}`
+        : `No obligation transfer`;
+      const runLine = e.running_amount > 0
+        ? `Running: ${ledgerUserName(e.running_debtor)} owes ${ledgerUserName(e.running_creditor)} ${fmtAmt(e.running_amount)}`
+        : `Running: All settled`;
+      return `<tr>
+        <td>${e.date}</td>
+        <td>${e.title}<br><small class="meta">${e.category_name} · ${e.paid_by_name} paid ${fmtAmt(e.amount)} · ${ledgerSplitDesc(e)}</small></td>
+        <td><small>${sharesHtml}</small><br><small class="net">${netLine}</small></td>
+        <td class="run">${runLine}</td>
+      </tr>`;
+    } else {
+      return `<tr class="settle-row">
+        <td>${e.date}</td>
+        <td colspan="2">Settlement: <strong>${e.paid_by_name}</strong> paid <strong>${e.paid_to_name}</strong> ${fmtAmt(e.amount)}${e.note ? " — " + e.note : ""}</td>
+        <td class="run">${e.running_amount > 0 ? `Running: ${ledgerUserName(e.running_debtor)} owes ${ledgerUserName(e.running_creditor)} ${fmtAmt(e.running_amount)}` : "Running: All settled"}</td>
+      </tr>`;
+    }
+  }).join("");
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Balance Ledger — ${monthLabel}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 24px; }
+  h1 { font-size: 16px; margin-bottom: 4px; }
+  .subtitle { color: #555; font-size: 12px; margin-bottom: 12px; }
+  .bal-owe { background: #fff3cd; padding: 8px 12px; border-radius: 6px; font-size: 13px; display: inline-block; }
+  .bal-clear { background: #d1fae5; padding: 8px 12px; border-radius: 6px; font-size: 13px; display: inline-block; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th { background: #f3f4f6; text-align: left; padding: 6px 8px; font-size: 11px; border-bottom: 2px solid #ddd; }
+  td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+  .settle-row td { background: #f0fdf4; }
+  .meta { color: #666; }
+  .net { color: #92400e; }
+  .run { color: #1d4ed8; font-size: 10px; }
+  @page { size: A4 landscape; margin: 15mm; }
+</style></head><body>
+<h1>Balance Ledger — ${monthLabel}</h1>
+<div class="subtitle">H&amp;M Home Finance · Generated ${new Date().toLocaleDateString("en-IN", { day:"numeric", month:"long", year:"numeric" })}</div>
+${balanceLine}
+<table>
+  <thead><tr><th>Date</th><th>Description</th><th>Split Breakdown</th><th>Running Balance</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { win.print(); }, 400);
 }
 
 // ── Load ───────────────────────────────────────────────────────────────────
@@ -1396,8 +1504,27 @@ onMounted(loadData);
 .pill-active { background: #111827; color: #fff; border-color: #111827; }
 
 /* ─── Balance Ledger ─────────────────────────── */
-.ledger-modal { max-width: 680px; }
+.ledger-modal { max-width: 720px; }
 .ledger-body { padding: 1rem 1.25rem; }
+
+.ledger-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ledger-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.ledger-month-pill {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #374151;
+  min-width: 90px;
+  text-align: center;
+  white-space: nowrap;
+}
 
 .ledger-summary-card {
   display: flex;

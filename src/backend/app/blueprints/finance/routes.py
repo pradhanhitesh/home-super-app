@@ -732,6 +732,14 @@ def get_balance_breakdown():
     user_ids = [str(u.id) for u in users]
     user_map = {str(u.id): u for u in users}
 
+    month_str = request.args.get("month")  # YYYY-MM
+    month_filter = None
+    if month_str:
+        try:
+            month_filter = _parse_month(month_str)
+        except ValueError:
+            return jsonify({"error": "Invalid month format, use YYYY-MM"}), 400
+
     all_expenses = Expense.query.filter_by(household_id=hid).order_by(
         Expense.expense_date, Expense.created_at
     ).all()
@@ -835,8 +843,14 @@ def get_balance_breakdown():
                 "amount": round(abs(net), 2),
             }
 
+    visible_entries = entries
+    if month_filter:
+        ym = month_filter.strftime("%Y-%m")
+        visible_entries = [e for e in entries if e["date"].startswith(ym)]
+
     return jsonify({
         "users": [{"id": str(u.id), "name": u.display_name} for u in users],
-        "entries": entries,
+        "entries": visible_entries,
         "balance": balance,
+        "month": month_str,
     })
