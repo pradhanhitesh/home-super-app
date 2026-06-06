@@ -519,8 +519,12 @@ def get_summary():
     ).all()
 
     # All-time expenses and settlements for running balance
-    all_expenses = Expense.query.filter_by(household_id=hid).all()
-    all_settlements = Settlement.query.filter_by(household_id=hid).all()
+    all_expenses = Expense.query.filter_by(household_id=hid).order_by(
+        Expense.expense_date, Expense.created_at
+    ).all()
+    all_settlements = Settlement.query.filter_by(household_id=hid).order_by(
+        Settlement.settled_at, Settlement.created_at
+    ).all()
 
     # ── Spending per user per category (this month) ──
     spending = {uid: {} for uid in user_ids}
@@ -531,21 +535,28 @@ def get_summary():
             if uid in spending:
                 spending[uid][cat_id] = spending[uid].get(cat_id, 0) + share
 
-    # ── Running balance (all time) ──
-    # debt_matrix[debtor_uid][creditor_uid] = amount debtor owes creditor
+    # ── Running balance (all time, chronological) ──
+    # Interleave expenses and settlements by date so settlements only cancel
+    # debt that existed at their settlement date, not future expenses.
     debt = {uid: {uid2: 0.0 for uid2 in user_ids if uid2 != uid} for uid in user_ids}
-    for expense in all_expenses:
-        shares = _compute_shares(expense, user_ids)
-        payer_id = str(expense.paid_by)
-        for uid, share in shares.items():
-            if uid != payer_id and uid in debt and payer_id in debt.get(uid, {}):
-                debt[uid][payer_id] += share
-    for s in all_settlements:
-        pb = str(s.paid_by)
-        pt = str(s.paid_to)
-        amt = float(s.amount)
-        if pb in debt and pt in debt[pb]:
-            debt[pb][pt] = max(0.0, debt[pb][pt] - amt)
+    timeline = (
+        [("expense", e.expense_date, e.created_at, e) for e in all_expenses] +
+        [("settlement", s.settled_at, s.created_at, s) for s in all_settlements]
+    )
+    timeline.sort(key=lambda x: (x[1], x[2]))
+    for kind, _, _, obj in timeline:
+        if kind == "expense":
+            shares = _compute_shares(obj, user_ids)
+            payer_id = str(obj.paid_by)
+            for uid, share in shares.items():
+                if uid != payer_id and uid in debt and payer_id in debt.get(uid, {}):
+                    debt[uid][payer_id] += share
+        else:
+            pb = str(obj.paid_by)
+            pt = str(obj.paid_to)
+            amt = float(obj.amount)
+            if pb in debt and pt in debt[pb]:
+                debt[pb][pt] = max(0.0, debt[pb][pt] - amt)
 
     # Simplify to net balance for 2-user household
     balance = None
