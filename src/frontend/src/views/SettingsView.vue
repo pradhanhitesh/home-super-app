@@ -37,6 +37,33 @@
       </p>
     </div>
 
+    <!-- Restore -->
+    <div class="settings-card mt-3">
+      <div class="settings-card-header">
+        <i class="bi bi-database-up settings-card-icon"></i>
+        <div>
+          <div class="settings-card-title">Restore from Backup</div>
+          <div class="settings-card-desc">
+            Upload a <code>.zip</code> backup file to restore all data into this household. Records are always added — run only on a fresh database to avoid duplicates.
+          </div>
+        </div>
+      </div>
+
+      <div v-if="restoreResult" class="alert alert-success py-2 mt-3 mb-0" style="font-size:0.85rem;">
+        Restored: {{ restoreResultSummary }}
+      </div>
+      <div v-if="restoreError" class="alert alert-danger py-2 mt-3 mb-0" style="font-size:0.85rem;">
+        {{ restoreError }}
+      </div>
+
+      <input ref="fileInput" type="file" accept=".zip" class="d-none" @change="onFileSelected" />
+      <button class="btn-restore mt-3" :disabled="restoring" @click="fileInput.click()">
+        <span v-if="restoring" class="spinner-border spinner-border-sm me-2" role="status"></span>
+        <i v-else class="bi bi-upload me-2"></i>
+        {{ restoring ? "Restoring…" : "Upload Backup ZIP" }}
+      </button>
+    </div>
+
     <!-- Household info -->
     <div class="settings-card mt-3">
       <div class="settings-card-header">
@@ -51,12 +78,51 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { useAuthStore } from "@/stores/auth";
 
 const authStore = useAuthStore();
+
+// Export
 const exporting = ref(false);
 const exportError = ref(null);
+
+// Restore
+const fileInput = ref(null);
+const restoring = ref(false);
+const restoreError = ref(null);
+const restoreResult = ref(null);
+
+const restoreResultSummary = computed(() => {
+  if (!restoreResult.value) return "";
+  return Object.entries(restoreResult.value.restored)
+    .map(([k, v]) => `${v} ${k}`)
+    .join(", ");
+});
+
+async function onFileSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  restoring.value = true;
+  restoreError.value = null;
+  restoreResult.value = null;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await authStore.apiFetch("/api/export/restore", {
+      method: "POST",
+      body: form,
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error ?? `Server error ${res.status}`);
+    restoreResult.value = body;
+  } catch (err) {
+    restoreError.value = err.message;
+  } finally {
+    restoring.value = false;
+    fileInput.value.value = "";
+  }
+}
 
 async function downloadExport() {
   exporting.value = true;
@@ -145,5 +211,28 @@ async function downloadExport() {
   font-size: 0.78rem;
   color: #9ca3af;
   margin: 0.6rem 0 0;
+}
+
+.btn-restore {
+  display: inline-flex;
+  align-items: center;
+  background: #198754;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-restore:hover:not(:disabled) {
+  background: #157347;
+}
+
+.btn-restore:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 </style>

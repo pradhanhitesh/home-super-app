@@ -100,8 +100,9 @@ export const useAuthStore = defineStore("auth", () => {
   /** Make an authenticated fetch to /api/* */
   async function apiFetch(path, options = {}) {
     const token = idToken.value;
+    const isFormData = options.body instanceof FormData;
     const headers = {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(options.headers || {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
