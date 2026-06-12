@@ -21,6 +21,7 @@ class BaseConfig:
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     ALLOWED_EMAILS = os.getenv("ALLOWED_EMAILS", "").split(",")
     FIREBASE_PROJECT_ID = os.environ["FIREBASE_PROJECT_ID"]
+    ADMIN_UID = os.getenv("ADMIN_UID", "")
 
 
 class DevelopmentConfig(BaseConfig):

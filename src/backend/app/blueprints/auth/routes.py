@@ -25,14 +25,20 @@ def login():
             db.session.add(household)
             db.session.flush()
 
-        existing_count = User.query.filter_by(household_id=household.id).count()
+        from flask import current_app
+        admin_uid = current_app.config.get("ADMIN_UID", "")
+        if admin_uid:
+            is_admin = decoded["uid"] == admin_uid
+        else:
+            is_admin = User.query.filter_by(household_id=household.id).count() == 0
+
         user = User(
             firebase_uid=decoded["uid"],
             email=decoded["email"],
             display_name=decoded.get("name", ""),
             photo_url=decoded.get("picture", ""),
             household_id=household.id,
-            is_admin=(existing_count == 0),
+            is_admin=is_admin,
         )
         db.session.add(user)
         db.session.commit()
